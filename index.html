@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hisaku ランキングビューア</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --line:#e3e6ea; --text:#1f2430;
+    --muted:#6b7280; --accent:#3b6ef5; --accent-weak:#eaf0ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI","Hiragino Kaku Gothic ProN",Meiryo,sans-serif;}
+  header{background:var(--card);border-bottom:1px solid var(--line);padding:14px 18px;}
+  header h1{margin:0;font-size:17px;font-weight:700;}
+  header p{margin:2px 0 0;font-size:12px;color:var(--muted);}
+  main{max-width:900px;margin:0 auto;padding:16px;}
+  .controls{display:flex;flex-wrap:wrap;gap:10px;background:var(--card);
+    border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:14px;}
+  .field{display:flex;flex-direction:column;gap:4px;}
+  .field label{font-size:11px;color:var(--muted);}
+  select{padding:7px 9px;border:1px solid var(--line);border-radius:8px;
+    background:#fff;font-size:14px;min-width:130px;}
+  .tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;}
+  .tab{padding:7px 14px;border:1px solid var(--line);background:#fff;border-radius:999px;
+    cursor:pointer;font-size:13px;color:var(--muted);}
+  .tab.active{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+  table{width:100%;border-collapse:collapse;font-size:14px;}
+  th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);}
+  th{background:#fafbfc;font-size:12px;color:var(--muted);font-weight:600;position:sticky;top:0;}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
+  tr:last-child td{border-bottom:none;}
+  .rank{font-weight:700;width:56px;}
+  .btn{padding:5px 10px;border:1px solid var(--line);background:#fff;border-radius:7px;
+    cursor:pointer;font-size:12px;color:var(--accent);}
+  .btn:hover{background:var(--accent-weak);}
+  .more{display:block;width:100%;padding:11px;border:none;border-top:1px solid var(--line);
+    background:#fff;cursor:pointer;color:var(--accent);font-size:13px;font-weight:600;}
+  .msg{padding:26px;text-align:center;color:var(--muted);font-size:14px;}
+  .chart-wrap{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;}
+  .chart-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+  .chart-head h2{margin:0;font-size:15px;}
+  .hidden{display:none;}
+</style>
+</head>
+<body>
+<header>
+  <h1>hisaku ランキングビューア</h1>
+  <p>イベント・大会のランキングと順位推移</p>
+</header>
+<main>
+  <div class="controls">
+    <div class="field">
+      <label>月</label>
+      <select id="periodSel"></select>
+    </div>
+    <div class="field">
+      <label>イベント / 大会</label>
+      <select id="contestSel"></select>
+    </div>
+    <div class="field" id="dayField">
+      <label>日</label>
+      <select id="daySel"></select>
+    </div>
+  </div>
+
+  <div class="tabs" id="kindTabs"></div>
+
+  <div id="rankingView">
+    <div class="card">
+      <table id="rankTable"><thead></thead><tbody></tbody></table>
+      <button class="more hidden" id="moreBtn">もっと見る</button>
+    </div>
+    <div class="msg hidden" id="rankMsg"></div>
+  </div>
+
+  <div id="trendView" class="chart-wrap hidden">
+    <div class="chart-head">
+      <h2 id="trendTitle"></h2>
+      <button class="btn" id="trendBack">← 一覧へ戻る</button>
+    </div>
+    <canvas id="trendChart" height="140"></canvas>
+    <div class="msg hidden" id="trendMsg"></div>
+  </div>
+</main>
+
+<script>
+const API = "https://hisaku-ranking-api.rimuse.workers.dev";
+
+const KIND_LABEL = {
+  event_user:"個人", event_alliance:"同盟",
+  tour_ichigeki:"一撃", tour_soudamage:"総ダメージ",
+};
+const KINDS_BY_TYPE = {
+  event:["event_user","event_alliance"],
+  tournament:["tour_ichigeki","tour_soudamage"],
+};
+
+const state = { contests:[], byPeriod:{}, contest:null, kind:null, day:1,
+                afterRank:0, rows:[], chart:null };
+
+const $ = id => document.getElementById(id);
+async function fetchJSON(url){
+  const r = await fetch(url);
+  if(!r.ok) throw new Error("HTTP "+r.status);
+  return r.json();
+}
+const fmt = n => (n===null||n===undefined||n==="") ? "-" : Number(n).toLocaleString();
+
+// ---- 初期化: contests 一覧を取得 ----
+async function init(){
+  let data;
+  try { data = await fetchJSON(`${API}/contests`); }
+  catch(e){ $("rankMsg").textContent = "APIに接続できません: "+e.message;
+            $("rankMsg").classList.remove("hidden"); return; }
+  state.contests = data.contests || [];
+  if(state.contests.length===0){
+    showRankMsg("まだデータがありません。"); return;
+  }
+  state.byPeriod = {};
+  for(const c of state.contests){
+    (state.byPeriod[c.period] = state.byPeriod[c.period] || []).push(c);
+  }
+  const periods = Object.keys(state.byPeriod).sort().reverse();
+  $("periodSel").innerHTML = periods.map(p=>`<option>${p}</option>`).join("");
+  $("periodSel").onchange = onPeriodChange;
+  $("contestSel").onchange = onContestChange;
+  $("daySel").onchange = ()=>{ state.day=+$("daySel").value; loadRanking(true); };
+  $("moreBtn").onclick = ()=>loadRanking(false);
+  $("trendBack").onclick = ()=>{ $("trendView").classList.add("hidden");
+                                 $("rankingView").classList.remove("hidden"); };
+  onPeriodChange();
+}
+
+function onPeriodChange(){
+  const list = state.byPeriod[$("periodSel").value] || [];
+  $("contestSel").innerHTML = list.map((c,i)=>
+    `<option value="${i}">${c.name || c.contest}</option>`).join("");
+  onContestChange();
+}
+
+function onContestChange(){
+  const list = state.byPeriod[$("periodSel").value] || [];
+  state.contest = list[+$("contestSel").value] || list[0];
+  const kinds = KINDS_BY_TYPE[state.contest.ctype] || [];
+  state.kind = kinds[0];
+
+  // 日セレクタ: イベントは開催日数ぶん、大会は1日のみ
+  const isEvent = state.contest.ctype === "event";
+  $("dayField").style.display = isEvent ? "" : "none";
+  if(isEvent){
+    const d0 = new Date(state.contest.start_date);
+    const d1 = new Date(state.contest.end_date);
+    const days = Math.round((d1-d0)/86400000) + 1;
+    let opts = "";
+    for(let i=1;i<=days;i++) opts += `<option value="${i}">${i}日目</option>`;
+    $("daySel").innerHTML = opts;
+  }
+  state.day = 1;
+
+  // 種別タブ
+  $("kindTabs").innerHTML = kinds.map(k=>
+    `<div class="tab ${k===state.kind?'active':''}" data-k="${k}">${KIND_LABEL[k]}</div>`
+  ).join("");
+  $("kindTabs").querySelectorAll(".tab").forEach(t=>{
+    t.onclick = ()=>{
+      state.kind = t.dataset.k;
+      $("kindTabs").querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===t));
+      loadRanking(true);
+    };
+  });
+
+  $("trendView").classList.add("hidden");
+  $("rankingView").classList.remove("hidden");
+  loadRanking(true);
+}
+
+function showRankMsg(m){ $("rankMsg").textContent=m; $("rankMsg").classList.remove("hidden"); }
+function hideRankMsg(){ $("rankMsg").classList.add("hidden"); }
+
+// ---- ランキング表示 ----
+async function loadRanking(reset){
+  if(reset){ state.afterRank=0; state.rows=[]; }
+  hideRankMsg();
+  const c = state.contest, k = state.kind;
+  const url = `${API}/ranking?kind=${k}&contest=${encodeURIComponent(c.contest)}`+
+              `&period=${c.period}&day=${state.day}&limit=100&after_rank=${state.afterRank}`;
+  let data;
+  try { data = await fetchJSON(url); }
+  catch(e){ showRankMsg("取得エラー: "+e.message); return; }
+  state.rows.push(...(data.rows||[]));
+  renderTable();
+  if(data.next_after_rank){ state.afterRank = data.next_after_rank;
+    $("moreBtn").classList.remove("hidden"); }
+  else $("moreBtn").classList.add("hidden");
+  if(state.rows.length===0) showRankMsg("この条件のデータはまだありません。");
+}
+
+function renderTable(){
+  const k = state.kind, isEvent = state.contest.ctype==="event";
+  const cols = [];
+  cols.push(`<th class="rank">順位</th>`);
+  cols.push(`<th>${k==="event_alliance"?"同盟名":"名前"}</th>`);
+  if(k==="event_user") cols.push(`<th>所属同盟</th>`);
+  if(k==="event_alliance") cols.push(`<th class="num">人数</th>`);
+  cols.push(`<th class="num">${k.startsWith("tour")?"ダメージ":"ポイント"}</th>`);
+  if(isEvent) cols.push(`<th></th>`);
+  $("rankTable").querySelector("thead").innerHTML = `<tr>${cols.join("")}</tr>`;
+
+  const body = state.rows.map(r=>{
+    const cells = [];
+    cells.push(`<td class="rank">${r.rank}</td>`);
+    cells.push(`<td>${escapeHtml(r.entity_name)||"-"}</td>`);
+    if(k==="event_user") cells.push(`<td>${escapeHtml(r.alliance_name)||"-"}</td>`);
+    if(k==="event_alliance") cells.push(`<td class="num">${fmt(r.member_count)}</td>`);
+    cells.push(`<td class="num">${fmt(r.points)}</td>`);
+    if(isEvent) cells.push(`<td><button class="btn" data-id="${encodeURIComponent(r.entity_id)}" `+
+      `data-name="${escapeHtml(r.entity_name)}">推移</button></td>`);
+    return `<tr>${cells.join("")}</tr>`;
+  }).join("");
+  $("rankTable").querySelector("tbody").innerHTML = body;
+
+  $("rankTable").querySelectorAll("button[data-id]").forEach(b=>{
+    b.onclick = ()=>showTrend(decodeURIComponent(b.dataset.id), b.dataset.name);
+  });
+}
+
+function escapeHtml(s){ return (s??"").replace(/[&<>"]/g,
+  c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+// ---- 推移(trend) ----
+async function showTrend(entityId, name){
+  $("rankingView").classList.add("hidden");
+  $("trendView").classList.remove("hidden");
+  $("trendMsg").classList.add("hidden");
+  $("trendTitle").textContent = `${KIND_LABEL[state.kind]}：${name} の推移`;
+  const c = state.contest;
+  const url = `${API}/trend?kind=${state.kind}&contest=${encodeURIComponent(c.contest)}`+
+              `&period=${c.period}&entity_id=${encodeURIComponent(entityId)}`;
+  let data;
+  try { data = await fetchJSON(url); }
+  catch(e){ $("trendMsg").textContent="取得エラー: "+e.message;
+            $("trendMsg").classList.remove("hidden"); return; }
+  const t = data.trend||[];
+  if(t.length===0){ $("trendMsg").textContent="推移データがありません。";
+    $("trendMsg").classList.remove("hidden"); if(state.chart) state.chart.destroy(); return; }
+  renderChart(t);
+}
+
+function renderChart(t){
+  const labels = t.map(x=>x.day+"日目");
+  const ranks = t.map(x=>x.rank);
+  const points = t.map(x=>Number(x.points));
+  if(state.chart) state.chart.destroy();
+  state.chart = new Chart($("trendChart"), {
+    data:{ labels, datasets:[
+      { type:"line", label:"順位", data:ranks, yAxisID:"yRank",
+        borderColor:"#3b6ef5", backgroundColor:"#3b6ef5", tension:.2 },
+      { type:"bar", label:"ポイント", data:points, yAxisID:"yPts",
+        backgroundColor:"rgba(59,110,245,.18)", borderColor:"rgba(59,110,245,.4)" },
+    ]},
+    options:{ responsive:true, interaction:{mode:"index",intersect:false},
+      scales:{
+        yRank:{ position:"left", reverse:true, title:{display:true,text:"順位"},
+                ticks:{precision:0} },
+        yPts:{ position:"right", grid:{drawOnChartArea:false},
+               title:{display:true,text:"ポイント"} },
+      } }
+  });
+}
+
+init();
+</script>
+</body>
+</html>
