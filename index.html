@@ -23,10 +23,14 @@
   .field label{font-size:11px;color:var(--muted);}
   select{padding:7px 9px;border:1px solid var(--line);border-radius:8px;
     background:#fff;font-size:14px;min-width:130px;}
-  .tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;}
+  .tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;align-items:center;}
   .tab{padding:7px 14px;border:1px solid var(--line);background:#fff;border-radius:999px;
     cursor:pointer;font-size:13px;color:var(--muted);}
   .tab.active{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;}
+  .tab-spacer{flex:1 1 auto;}
+  .link-btn{padding:7px 12px;border:1px dashed var(--line);background:#fff;border-radius:999px;
+    cursor:pointer;font-size:13px;color:var(--accent);}
+  .link-btn:hover{background:var(--accent-weak);}
   .card{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;}
   table{width:100%;border-collapse:collapse;font-size:14px;}
   th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);}
@@ -41,9 +45,21 @@
     background:#fff;cursor:pointer;color:var(--accent);font-size:13px;font-weight:600;}
   .msg{padding:26px;text-align:center;color:var(--muted);font-size:14px;}
   .chart-wrap{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;}
-  .chart-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+  .chart-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;
+    flex-wrap:wrap;gap:8px;}
   .chart-head h2{margin:0;font-size:15px;}
   .hidden{display:none;}
+  .chip-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center;}
+  .chip{padding:6px 13px;border:1px solid var(--line);background:#fff;border-radius:999px;
+    cursor:pointer;font-size:13px;color:var(--text);}
+  .chip.selected{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;}
+  .chip.custom{background:var(--accent-weak);border-color:var(--accent);color:var(--accent);}
+  .chip.custom .x{margin-left:6px;font-weight:700;}
+  .add-rank{display:flex;gap:6px;align-items:center;}
+  .add-rank input{width:80px;padding:6px 8px;border:1px solid var(--line);border-radius:7px;font-size:13px;}
+  .add-rank button{padding:6px 12px;border:1px solid var(--accent);background:var(--accent);
+    color:#fff;border-radius:7px;cursor:pointer;font-size:13px;}
+  .hint{font-size:12px;color:var(--muted);margin-bottom:10px;}
 </style>
 </head>
 <body>
@@ -85,6 +101,23 @@
     <canvas id="trendChart" height="140"></canvas>
     <div class="msg hidden" id="trendMsg"></div>
   </div>
+
+  <div id="borderView" class="chart-wrap hidden">
+    <div class="chart-head">
+      <h2 id="borderTitle">ボーダー推移</h2>
+      <button class="btn" id="borderBack">← 一覧へ戻る</button>
+    </div>
+    <div class="hint">見たい順位を選択(複数可)。日ごとの必要ポイントの推移を比較できます。</div>
+    <div class="chip-row" id="presetChips"></div>
+    <div class="chip-row" id="customChips"></div>
+    <div class="add-rank">
+      <span style="font-size:13px;color:var(--muted);">順位を追加:</span>
+      <input type="number" id="customRankInput" min="1" placeholder="例: 500">
+      <button id="addRankBtn">追加</button>
+    </div>
+    <canvas id="borderChart" height="140"></canvas>
+    <div class="msg hidden" id="borderMsg"></div>
+  </div>
 </main>
 
 <script>
@@ -98,9 +131,17 @@ const KINDS_BY_TYPE = {
   event:["event_user","event_alliance"],
   tournament:["tour_ichigeki","tour_soudamage"],
 };
+// ボーダー推移のプリセット順位(種別ごとに見たいボーダーが異なるため個別設定)
+const BORDER_PRESETS = {
+  event_user:     [10, 50, 100, 150, 250],
+  event_alliance: [5, 10, 15, 20, 30],
+};
+const MAX_BORDER_RANKS = 8; // 見づらくなりすぎないための上限(プリセット+自由入力の合計)
+const BORDER_COLORS = ["#3b6ef5","#e0578a","#22a366","#e0a12a","#8a5ce0","#0fa3b1","#e0522a","#5c6bc0"];
 
 const state = { contests:[], byPeriod:{}, contest:null, kind:null, day:1,
-                afterRank:0, rows:[], chart:null };
+                afterRank:0, rows:[], chart:null,
+                borderRanks:new Set(), borderCustomRanks:new Set(), borderChart:null };
 
 const $ = id => document.getElementById(id);
 async function fetchJSON(url){
@@ -132,6 +173,10 @@ async function init(){
   $("moreBtn").onclick = ()=>loadRanking(false);
   $("trendBack").onclick = ()=>{ $("trendView").classList.add("hidden");
                                  $("rankingView").classList.remove("hidden"); };
+  $("borderBack").onclick = ()=>{ $("borderView").classList.add("hidden");
+                                  $("rankingView").classList.remove("hidden"); };
+  $("addRankBtn").onclick = addCustomRank;
+  $("customRankInput").addEventListener("keydown", e=>{ if(e.key==="Enter") addCustomRank(); });
   onPeriodChange();
 }
 
@@ -161,21 +206,40 @@ function onContestChange(){
   }
   state.day = 1;
 
-  // 種別タブ
-  $("kindTabs").innerHTML = kinds.map(k=>
+  renderKindTabs(isEvent);
+
+  $("trendView").classList.add("hidden");
+  $("borderView").classList.add("hidden");
+  $("rankingView").classList.remove("hidden");
+  loadRanking(true);
+}
+
+function renderKindTabs(isEvent){
+  const kinds = KINDS_BY_TYPE[state.contest.ctype] || [];
+  const tabsHtml = kinds.map(k=>
     `<div class="tab ${k===state.kind?'active':''}" data-k="${k}">${KIND_LABEL[k]}</div>`
   ).join("");
+  // ボーダー推移は複数日にわたるイベントのみ意味を持つ(大会は1日のみのため対象外)
+  const borderBtn = isEvent ? `<div class="link-btn" id="borderOpenBtn">📈 ボーダー推移</div>` : "";
+  $("kindTabs").innerHTML = tabsHtml + `<div class="tab-spacer"></div>` + borderBtn;
+
   $("kindTabs").querySelectorAll(".tab").forEach(t=>{
     t.onclick = ()=>{
       state.kind = t.dataset.k;
-      $("kindTabs").querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===t));
-      loadRanking(true);
+      const borderOpen = !$("borderView").classList.contains("hidden");
+      if(borderOpen){
+        // ボーダー推移画面を開いたまま種別だけ切り替える(個人⇔同盟でプリセットが違うため)
+        resetBorderSelection();
+        renderBorderChips();
+        loadBorderTrend();
+      } else {
+        $("kindTabs").querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===t));
+        loadRanking(true);
+      }
     };
   });
-
-  $("trendView").classList.add("hidden");
-  $("rankingView").classList.remove("hidden");
-  loadRanking(true);
+  const openBtn = $("borderOpenBtn");
+  if(openBtn) openBtn.onclick = openBorderView;
 }
 
 function showRankMsg(m){ $("rankMsg").textContent=m; $("rankMsg").classList.remove("hidden"); }
@@ -231,9 +295,10 @@ function renderTable(){
 function escapeHtml(s){ return (s??"").replace(/[&<>"]/g,
   c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
-// ---- 推移(trend) ----
+// ---- 推移(個人/同盟エンティティ単位) ----
 async function showTrend(entityId, name){
   $("rankingView").classList.add("hidden");
+  $("borderView").classList.add("hidden");
   $("trendView").classList.remove("hidden");
   $("trendMsg").classList.add("hidden");
   $("trendTitle").textContent = `${KIND_LABEL[state.kind]}：${name} の推移`;
@@ -269,6 +334,142 @@ function renderChart(t){
         yPts:{ position:"right", grid:{drawOnChartArea:false},
                title:{display:true,text:"ポイント"} },
       } }
+  });
+}
+
+// ---- ボーダー推移(指定順位の必要ポイント比較) ----
+function openBorderView(){
+  $("rankingView").classList.add("hidden");
+  $("trendView").classList.add("hidden");
+  $("borderView").classList.remove("hidden");
+  $("borderTitle").textContent = `${KIND_LABEL[state.kind]}のボーダー推移`;
+  resetBorderSelection();
+  renderBorderChips();
+  loadBorderTrend();
+}
+
+function resetBorderSelection(){
+  // 種別切り替え時、プリセットの上位いくつかを初期選択にしておく(空だと何も表示されないため)
+  const presets = BORDER_PRESETS[state.kind] || [];
+  state.borderRanks = new Set(presets.slice(0, 3));
+  state.borderCustomRanks = new Set();
+  $("borderTitle").textContent = `${KIND_LABEL[state.kind]}のボーダー推移`;
+}
+
+function renderBorderChips(){
+  const presets = BORDER_PRESETS[state.kind] || [];
+  $("presetChips").innerHTML = presets.map(r=>
+    `<div class="chip ${state.borderRanks.has(r)?'selected':''}" data-r="${r}">${r}位</div>`
+  ).join("");
+  $("presetChips").querySelectorAll(".chip").forEach(chip=>{
+    chip.onclick = ()=> toggleBorderRank(Number(chip.dataset.r));
+  });
+  renderCustomChips();
+}
+
+function renderCustomChips(){
+  $("customChips").innerHTML = [...state.borderCustomRanks].sort((a,b)=>a-b).map(r=>
+    `<div class="chip custom selected" data-r="${r}">${r}位<span class="x" data-remove="${r}">×</span></div>`
+  ).join("");
+  $("customChips").querySelectorAll("[data-remove]").forEach(el=>{
+    el.onclick = (ev)=>{ ev.stopPropagation();
+      const r = Number(el.dataset.remove);
+      state.borderCustomRanks.delete(r);
+      state.borderRanks.delete(r);
+      renderCustomChips();
+      loadBorderTrend();
+    };
+  });
+}
+
+function toggleBorderRank(r){
+  if(state.borderRanks.has(r)){
+    state.borderRanks.delete(r);
+  } else {
+    if(state.borderRanks.size >= MAX_BORDER_RANKS){
+      alert(`一度に比較できるのは${MAX_BORDER_RANKS}件までです。`);
+      return;
+    }
+    state.borderRanks.add(r);
+  }
+  renderBorderChips();
+  loadBorderTrend();
+}
+
+function addCustomRank(){
+  const input = $("customRankInput");
+  const r = parseInt(input.value, 10);
+  if(!r || r < 1){ input.focus(); return; }
+  if(state.borderRanks.size >= MAX_BORDER_RANKS && !state.borderRanks.has(r)){
+    alert(`一度に比較できるのは${MAX_BORDER_RANKS}件までです。`);
+    return;
+  }
+  state.borderCustomRanks.add(r);
+  state.borderRanks.add(r);
+  input.value = "";
+  renderBorderChips();
+  loadBorderTrend();
+}
+
+async function loadBorderTrend(){
+  $("borderMsg").classList.add("hidden");
+  const ranks = [...state.borderRanks].sort((a,b)=>a-b);
+  if(ranks.length===0){
+    if(state.borderChart) state.borderChart.destroy();
+    $("borderMsg").textContent = "比較したい順位を選択してください。";
+    $("borderMsg").classList.remove("hidden");
+    return;
+  }
+  const c = state.contest;
+  const url = `${API}/rank_trend?kind=${state.kind}&contest=${encodeURIComponent(c.contest)}`+
+              `&period=${c.period}&ranks=${ranks.join(",")}`;
+  let data;
+  try { data = await fetchJSON(url); }
+  catch(e){ $("borderMsg").textContent="取得エラー: "+e.message;
+            $("borderMsg").classList.remove("hidden"); return; }
+  renderBorderChart(data.ranks || {}, ranks);
+}
+
+function renderBorderChart(byRank, ranks){
+  // 日の和集合をx軸にする(順位によって記録が始まる日がずれる可能性があるため)
+  const daySet = new Set();
+  for(const r of ranks) (byRank[r]||[]).forEach(row=>daySet.add(row.day));
+  const days = [...daySet].sort((a,b)=>a-b);
+  if(days.length===0){
+    if(state.borderChart) state.borderChart.destroy();
+    $("borderMsg").textContent = "この条件のデータはまだありません。";
+    $("borderMsg").classList.remove("hidden");
+    return;
+  }
+  $("borderMsg").classList.add("hidden");
+
+  const datasets = ranks.map((r, i)=>{
+    const rows = byRank[r] || [];
+    const byDay = {};
+    rows.forEach(row=>{ byDay[row.day] = row; });
+    const points = days.map(d=> byDay[d] ? Number(byDay[d].points) : null);
+    const names  = days.map(d=> byDay[d] ? byDay[d].entity_name : null);
+    const color = BORDER_COLORS[i % BORDER_COLORS.length];
+    return {
+      label: `${r}位`, data: points, borderColor: color, backgroundColor: color,
+      tension:.2, spanGaps:true, _entityNames: names,
+    };
+  });
+
+  if(state.borderChart) state.borderChart.destroy();
+  state.borderChart = new Chart($("borderChart"), {
+    type:"line",
+    data:{ labels: days.map(d=>d+"日目"), datasets },
+    options:{
+      responsive:true, interaction:{mode:"index",intersect:false},
+      plugins:{ tooltip:{ callbacks:{
+        afterLabel: (ctx)=>{
+          const name = ctx.dataset._entityNames?.[ctx.dataIndex];
+          return name ? `　${name}` : "";
+        }
+      } } },
+      scales:{ y:{ title:{display:true,text:"必要ポイント"} } },
+    }
   });
 }
 
