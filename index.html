@@ -268,6 +268,7 @@ function renderTable(){
   const cols = [];
   cols.push(`<th class="rank">順位</th>`);
   cols.push(`<th>${k==="event_alliance"?"同盟名":"名前"}</th>`);
+  if(k==="event_user") cols.push(`<th>ID</th>`);
   if(k==="event_user") cols.push(`<th>所属同盟</th>`);
   if(k==="event_alliance") cols.push(`<th class="num">人数</th>`);
   cols.push(`<th class="num">${k.startsWith("tour")?"ダメージ":"ポイント"}</th>`);
@@ -278,6 +279,7 @@ function renderTable(){
     const cells = [];
     cells.push(`<td class="rank">${r.rank}</td>`);
     cells.push(`<td>${escapeHtml(r.entity_name)||"-"}</td>`);
+    if(k==="event_user") cells.push(`<td>${escapeHtml(r.entity_id)||"-"}</td>`);
     if(k==="event_user") cells.push(`<td>${escapeHtml(r.alliance_name)||"-"}</td>`);
     if(k==="event_alliance") cells.push(`<td class="num">${fmt(r.member_count)}</td>`);
     cells.push(`<td class="num">${fmt(r.points)}</td>`);
@@ -292,7 +294,7 @@ function renderTable(){
   });
 }
 
-function escapeHtml(s){ return (s??"").replace(/[&<>"]/g,
+function escapeHtml(s){ return String(s??"").replace(/[&<>"]/g,
   c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
 // ---- 推移(個人/同盟エンティティ単位) ----
