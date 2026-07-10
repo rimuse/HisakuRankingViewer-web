@@ -265,10 +265,11 @@ async function loadRanking(reset){
 
 function renderTable(){
   const k = state.kind, isEvent = state.contest.ctype==="event";
+  const isIndividual = k!=="event_alliance";
   const cols = [];
   cols.push(`<th class="rank">順位</th>`);
   cols.push(`<th>${k==="event_alliance"?"同盟名":"名前"}</th>`);
-  if(k==="event_user") cols.push(`<th>ID</th>`);
+  if(isIndividual) cols.push(`<th>ID</th>`);
   if(k==="event_user") cols.push(`<th>所属同盟</th>`);
   if(k==="event_alliance") cols.push(`<th class="num">人数</th>`);
   cols.push(`<th class="num">${k.startsWith("tour")?"ダメージ":"ポイント"}</th>`);
@@ -279,7 +280,7 @@ function renderTable(){
     const cells = [];
     cells.push(`<td class="rank">${r.rank}</td>`);
     cells.push(`<td>${escapeHtml(r.entity_name)||"-"}</td>`);
-    if(k==="event_user") cells.push(`<td>${escapeHtml(r.entity_id)||"-"}</td>`);
+    if(isIndividual) cells.push(`<td>${escapeHtml(r.entity_id)||"-"}</td>`);
     if(k==="event_user") cells.push(`<td>${escapeHtml(r.alliance_name)||"-"}</td>`);
     if(k==="event_alliance") cells.push(`<td class="num">${fmt(r.member_count)}</td>`);
     cells.push(`<td class="num">${fmt(r.points)}</td>`);
