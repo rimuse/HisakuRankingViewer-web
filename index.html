@@ -237,8 +237,14 @@ function onContestChange(){
     const d0 = new Date(state.contest.start_date);
     const d1 = new Date(state.contest.end_date);
     const days = Math.round((d1-d0)/86400000) + 1;
+    const midDay = state.contest.mid_date
+      ? Math.round((new Date(state.contest.mid_date)-d0)/86400000) + 1
+      : null;
     let opts = "";
-    for(let i=1;i<=days;i++) opts += `<option value="${i}">${i}日目</option>`;
+    for(let i=1;i<=days;i++){
+      const label = i===midDay ? `${i}日目（中間集計日）` : `${i}日目`;
+      opts += `<option value="${i}">${label}</option>`;
+    }
     $("daySel").innerHTML = opts;
   }
   state.day = 1;
