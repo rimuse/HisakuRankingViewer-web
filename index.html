@@ -70,11 +70,18 @@
 <main>
   <div class="controls">
     <div class="field">
+      <label>イベント / 大会</label>
+      <select id="categorySel">
+        <option value="event">イベント</option>
+        <option value="tournament">大会</option>
+      </select>
+    </div>
+    <div class="field" id="periodField">
       <label>月</label>
       <select id="periodSel"></select>
     </div>
     <div class="field">
-      <label>イベント / 大会</label>
+      <label>イベント / 大会名</label>
       <select id="contestSel"></select>
     </div>
     <div class="field" id="dayField">
@@ -139,7 +146,8 @@ const BORDER_PRESETS = {
 const MAX_BORDER_RANKS = 8; // 見づらくなりすぎないための上限(プリセット+自由入力の合計)
 const BORDER_COLORS = ["#3b6ef5","#e0578a","#22a366","#e0a12a","#8a5ce0","#0fa3b1","#e0522a","#5c6bc0"];
 
-const state = { contests:[], byPeriod:{}, contest:null, kind:null, day:1,
+const state = { contests:[], byPeriod:{}, tournaments:[], category:"event",
+                contest:null, kind:null, day:1,
                 afterRank:0, rows:[], chart:null,
                 borderRanks:new Set(), borderCustomRanks:new Set(), borderChart:null };
 
@@ -163,10 +171,14 @@ async function init(){
   }
   state.byPeriod = {};
   for(const c of state.contests){
+    if(c.ctype !== "event") continue;
     (state.byPeriod[c.period] = state.byPeriod[c.period] || []).push(c);
   }
-  const periods = Object.keys(state.byPeriod).sort().reverse();
-  $("periodSel").innerHTML = periods.map(p=>`<option>${p}</option>`).join("");
+  state.tournaments = state.contests.filter(c=>c.ctype !== "event")
+    .sort((a,b)=> String(b.period).localeCompare(String(a.period)));
+
+  $("categorySel").value = state.category;
+  $("categorySel").onchange = onCategoryChange;
   $("periodSel").onchange = onPeriodChange;
   $("contestSel").onchange = onContestChange;
   $("daySel").onchange = ()=>{ state.day=+$("daySel").value; loadRanking(true); };
@@ -177,7 +189,22 @@ async function init(){
                                   $("rankingView").classList.remove("hidden"); };
   $("addRankBtn").onclick = addCustomRank;
   $("customRankInput").addEventListener("keydown", e=>{ if(e.key==="Enter") addCustomRank(); });
-  onPeriodChange();
+  onCategoryChange();
+}
+
+function onCategoryChange(){
+  state.category = $("categorySel").value;
+  const isEvent = state.category === "event";
+  $("periodField").style.display = isEvent ? "" : "none";
+  if(isEvent){
+    const periods = Object.keys(state.byPeriod).sort().reverse();
+    $("periodSel").innerHTML = periods.map(p=>`<option>${p}</option>`).join("");
+    onPeriodChange();
+  } else {
+    $("contestSel").innerHTML = state.tournaments.map((c,i)=>
+      `<option value="${i}">${c.name || c.contest}</option>`).join("");
+    onContestChange();
+  }
 }
 
 function onPeriodChange(){
@@ -188,8 +215,18 @@ function onPeriodChange(){
 }
 
 function onContestChange(){
-  const list = state.byPeriod[$("periodSel").value] || [];
+  const list = state.category === "event"
+    ? (state.byPeriod[$("periodSel").value] || [])
+    : state.tournaments;
   state.contest = list[+$("contestSel").value] || list[0];
+  if(!state.contest){
+    $("kindTabs").innerHTML = "";
+    $("trendView").classList.add("hidden");
+    $("borderView").classList.add("hidden");
+    $("rankingView").classList.remove("hidden");
+    showRankMsg("この条件のデータはまだありません。");
+    return;
+  }
   const kinds = KINDS_BY_TYPE[state.contest.ctype] || [];
   state.kind = kinds[0];
 
