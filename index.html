@@ -175,7 +175,7 @@ async function init(){
     (state.byPeriod[c.period] = state.byPeriod[c.period] || []).push(c);
   }
   state.tournaments = state.contests.filter(c=>c.ctype !== "event")
-    .sort((a,b)=> String(b.period).localeCompare(String(a.period)));
+    .sort((a,b)=> new Date(b.start_date) - new Date(a.start_date));
 
   $("categorySel").value = state.category;
   $("categorySel").onchange = onCategoryChange;
