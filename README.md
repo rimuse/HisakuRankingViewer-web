@@ -6,7 +6,6 @@ Cloudflare Worker API（`https://hisaku-ranking-api.rimuse.workers.dev`）を参
 イベント・大会のランキングと順位推移を表示する静的サイト。
 
 - 単一ファイル `index.html`（ビルド不要）。推移グラフのみ CDN の Chart.js を使用。
-- データ取得・蓄積は別リポジトリ（private）の HisakuRankingViewer 側で行う。
 
 ## 公開手順（GitHub Pages）
 
