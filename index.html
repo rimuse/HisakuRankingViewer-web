@@ -41,8 +41,18 @@
   .btn{padding:5px 10px;border:1px solid var(--line);background:#fff;border-radius:7px;
     cursor:pointer;font-size:12px;color:var(--accent);}
   .btn:hover{background:var(--accent-weak);}
-  .more{display:block;width:100%;padding:11px;border:none;border-top:1px solid var(--line);
-    background:#fff;cursor:pointer;color:var(--accent);font-size:13px;font-weight:600;}
+  .pager{display:flex;align-items:center;justify-content:center;gap:10px;
+    flex-wrap:wrap;margin-top:12px;}
+  .page-nav{padding:7px 14px;border:1px solid var(--line);background:#fff;border-radius:8px;
+    cursor:pointer;font-size:13px;color:var(--accent);}
+  .page-nav:disabled{color:var(--muted);cursor:default;opacity:.5;}
+  .page-nums{display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:center;}
+  .page-num{min-width:30px;padding:6px 8px;border:1px solid var(--line);background:#fff;
+    border-radius:7px;cursor:pointer;font-size:13px;color:var(--text);
+    font-variant-numeric:tabular-nums;}
+  .page-num.active{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;}
+  .page-ellipsis{padding:0 4px;color:var(--muted);font-size:13px;}
+  .page-label{font-size:13px;color:var(--muted);}
   .msg{padding:26px;text-align:center;color:var(--muted);font-size:14px;}
   .chart-wrap{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;}
   .chart-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;
@@ -95,7 +105,11 @@
   <div id="rankingView">
     <div class="card">
       <table id="rankTable"><thead></thead><tbody></tbody></table>
-      <button class="more hidden" id="moreBtn">もっと見る</button>
+    </div>
+    <div class="pager hidden" id="pager">
+      <button class="page-nav" id="prevPageBtn">← 前へ</button>
+      <div class="page-nums" id="pageNums"></div>
+      <button class="page-nav" id="nextPageBtn">次へ →</button>
     </div>
     <div class="msg hidden" id="rankMsg"></div>
   </div>
@@ -148,7 +162,7 @@ const BORDER_COLORS = ["#3b6ef5","#e0578a","#22a366","#e0a12a","#8a5ce0","#0fa3b
 
 const state = { contests:[], byPeriod:{}, tournaments:[], category:"event",
                 contest:null, kind:null, day:1,
-                afterRank:0, rows:[], chart:null,
+                page:1, pageSize:100, rows:[], total:null, hasNext:false, chart:null,
                 borderRanks:new Set(), borderCustomRanks:new Set(), borderChart:null };
 
 const $ = id => document.getElementById(id);
@@ -182,7 +196,8 @@ async function init(){
   $("periodSel").onchange = onPeriodChange;
   $("contestSel").onchange = onContestChange;
   $("daySel").onchange = ()=>{ state.day=+$("daySel").value; loadRanking(true); };
-  $("moreBtn").onclick = ()=>loadRanking(false);
+  $("prevPageBtn").onclick = ()=>goToPage(state.page-1);
+  $("nextPageBtn").onclick = ()=>goToPage(state.page+1);
   $("trendBack").onclick = ()=>{ $("trendView").classList.add("hidden");
                                  $("rankingView").classList.remove("hidden"); };
   $("borderBack").onclick = ()=>{ $("borderView").classList.add("hidden");
@@ -288,22 +303,71 @@ function renderKindTabs(isEvent){
 function showRankMsg(m){ $("rankMsg").textContent=m; $("rankMsg").classList.remove("hidden"); }
 function hideRankMsg(){ $("rankMsg").classList.add("hidden"); }
 
-// ---- ランキング表示 ----
-async function loadRanking(reset){
-  if(reset){ state.afterRank=0; state.rows=[]; }
+// ---- ランキング表示(100件ずつのページ送り) ----
+function goToPage(p){
+  if(p<1 || p===state.page || (state.total!=null && p>Math.ceil(state.total/state.pageSize))) return;
+  state.page = p;
+  loadRanking(false);
+}
+
+async function loadRanking(resetPage){
+  if(resetPage) state.page = 1;
   hideRankMsg();
   const c = state.contest, k = state.kind;
+  const afterRank = (state.page-1) * state.pageSize;
   const url = `${API}/ranking?kind=${k}&contest=${encodeURIComponent(c.contest)}`+
-              `&period=${c.period}&day=${state.day}&limit=100&after_rank=${state.afterRank}`;
+              `&period=${c.period}&day=${state.day}&limit=${state.pageSize}&after_rank=${afterRank}`;
   let data;
   try { data = await fetchJSON(url); }
   catch(e){ showRankMsg("取得エラー: "+e.message); return; }
-  state.rows.push(...(data.rows||[]));
+  state.rows = data.rows || [];
+  // total が返らないAPIバージョンでも動くよう、無い場合は前へ/次へのみのフォールバック表示にする
+  state.total = typeof data.total === "number" ? data.total : null;
+  state.hasNext = data.next_after_rank !== null && data.next_after_rank !== undefined;
   renderTable();
-  if(data.next_after_rank){ state.afterRank = data.next_after_rank;
-    $("moreBtn").classList.remove("hidden"); }
-  else $("moreBtn").classList.add("hidden");
+  renderPager();
   if(state.rows.length===0) showRankMsg("この条件のデータはまだありません。");
+}
+
+function renderPager(){
+  const pager = $("pager");
+  if(state.rows.length===0 && state.page===1){ pager.classList.add("hidden"); return; }
+
+  const totalPages = state.total!=null ? Math.max(1, Math.ceil(state.total/state.pageSize)) : null;
+  if(totalPages===1 && !state.hasNext){ pager.classList.add("hidden"); return; }
+  pager.classList.remove("hidden");
+
+  $("prevPageBtn").disabled = state.page<=1;
+  $("nextPageBtn").disabled = totalPages!=null ? state.page>=totalPages : !state.hasNext;
+
+  const nums = $("pageNums");
+  if(totalPages!=null){
+    nums.innerHTML = pageNumberList(state.page, totalPages).map(p=>
+      p==="…" ? `<span class="page-ellipsis">…</span>`
+              : `<button class="page-num ${p===state.page?'active':''}" data-page="${p}">${p}</button>`
+    ).join("");
+    nums.querySelectorAll("button[data-page]").forEach(b=>{
+      b.onclick = ()=>goToPage(Number(b.dataset.page));
+    });
+  } else {
+    nums.innerHTML = `<span class="page-label">${state.page} ページ目</span>`;
+  }
+}
+
+// 現在ページの前後2ページ + 先頭/最終ページを表示し、間は「…」で省略する
+function pageNumberList(current, total){
+  const delta = 2;
+  const keep = new Set([1, total]);
+  for(let i=current-delta;i<=current+delta;i++){ if(i>=1 && i<=total) keep.add(i); }
+  const sorted = [...keep].sort((a,b)=>a-b);
+  const out = [];
+  let prev;
+  for(const p of sorted){
+    if(prev!==undefined && p-prev>1) out.push("…");
+    out.push(p);
+    prev = p;
+  }
+  return out;
 }
 
 function renderTable(){
