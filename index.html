@@ -42,7 +42,9 @@
     cursor:pointer;font-size:12px;color:var(--accent);}
   .btn:hover{background:var(--accent-weak);}
   .pager{display:flex;align-items:center;justify-content:center;gap:10px;
-    flex-wrap:wrap;margin-top:12px;}
+    flex-wrap:wrap;}
+  #pagerTop{margin-bottom:12px;}
+  #pagerBottom{margin-top:12px;}
   .page-nav{padding:7px 14px;border:1px solid var(--line);background:#fff;border-radius:8px;
     cursor:pointer;font-size:13px;color:var(--accent);}
   .page-nav:disabled{color:var(--muted);cursor:default;opacity:.5;}
@@ -103,13 +105,18 @@
   <div class="tabs" id="kindTabs"></div>
 
   <div id="rankingView">
+    <div class="pager hidden" id="pagerTop">
+      <button class="page-nav" id="prevPageBtnTop">← 前へ</button>
+      <div class="page-nums" id="pageNumsTop"></div>
+      <button class="page-nav" id="nextPageBtnTop">次へ →</button>
+    </div>
     <div class="card">
       <table id="rankTable"><thead></thead><tbody></tbody></table>
     </div>
-    <div class="pager hidden" id="pager">
-      <button class="page-nav" id="prevPageBtn">← 前へ</button>
-      <div class="page-nums" id="pageNums"></div>
-      <button class="page-nav" id="nextPageBtn">次へ →</button>
+    <div class="pager hidden" id="pagerBottom">
+      <button class="page-nav" id="prevPageBtnBottom">← 前へ</button>
+      <div class="page-nums" id="pageNumsBottom"></div>
+      <button class="page-nav" id="nextPageBtnBottom">次へ →</button>
     </div>
     <div class="msg hidden" id="rankMsg"></div>
   </div>
@@ -196,8 +203,10 @@ async function init(){
   $("periodSel").onchange = onPeriodChange;
   $("contestSel").onchange = onContestChange;
   $("daySel").onchange = ()=>{ state.day=+$("daySel").value; loadRanking(true); };
-  $("prevPageBtn").onclick = ()=>goToPage(state.page-1);
-  $("nextPageBtn").onclick = ()=>goToPage(state.page+1);
+  $("prevPageBtnTop").onclick = ()=>goToPage(state.page-1);
+  $("nextPageBtnTop").onclick = ()=>goToPage(state.page+1);
+  $("prevPageBtnBottom").onclick = ()=>goToPage(state.page-1);
+  $("nextPageBtnBottom").onclick = ()=>goToPage(state.page+1);
   $("trendBack").onclick = ()=>{ $("trendView").classList.add("hidden");
                                  $("rankingView").classList.remove("hidden"); };
   $("borderBack").onclick = ()=>{ $("borderView").classList.add("hidden");
@@ -330,28 +339,34 @@ async function loadRanking(resetPage){
 }
 
 function renderPager(){
-  const pager = $("pager");
-  if(state.rows.length===0 && state.page===1){ pager.classList.add("hidden"); return; }
+  const pagers = [$("pagerTop"), $("pagerBottom")];
+  if(state.rows.length===0 && state.page===1){
+    pagers.forEach(p=>p.classList.add("hidden")); return;
+  }
 
   const totalPages = state.total!=null ? Math.max(1, Math.ceil(state.total/state.pageSize)) : null;
-  if(totalPages===1 && !state.hasNext){ pager.classList.add("hidden"); return; }
-  pager.classList.remove("hidden");
+  if(totalPages===1 && !state.hasNext){
+    pagers.forEach(p=>p.classList.add("hidden")); return;
+  }
+  pagers.forEach(p=>p.classList.remove("hidden"));
 
-  $("prevPageBtn").disabled = state.page<=1;
-  $("nextPageBtn").disabled = totalPages!=null ? state.page>=totalPages : !state.hasNext;
+  $("prevPageBtnTop").disabled = $("prevPageBtnBottom").disabled = state.page<=1;
+  $("nextPageBtnTop").disabled = $("nextPageBtnBottom").disabled =
+    totalPages!=null ? state.page>=totalPages : !state.hasNext;
 
-  const nums = $("pageNums");
-  if(totalPages!=null){
-    nums.innerHTML = pageNumberList(state.page, totalPages).map(p=>
-      p==="…" ? `<span class="page-ellipsis">…</span>`
-              : `<button class="page-num ${p===state.page?'active':''}" data-page="${p}">${p}</button>`
-    ).join("");
+  const numsHtml = totalPages!=null
+    ? pageNumberList(state.page, totalPages).map(p=>
+        p==="…" ? `<span class="page-ellipsis">…</span>`
+                : `<button class="page-num ${p===state.page?'active':''}" data-page="${p}">${p}</button>`
+      ).join("")
+    : `<span class="page-label">${state.page} ページ目</span>`;
+
+  [$("pageNumsTop"), $("pageNumsBottom")].forEach(nums=>{
+    nums.innerHTML = numsHtml;
     nums.querySelectorAll("button[data-page]").forEach(b=>{
       b.onclick = ()=>goToPage(Number(b.dataset.page));
     });
-  } else {
-    nums.innerHTML = `<span class="page-label">${state.page} ページ目</span>`;
-  }
+  });
 }
 
 // 現在ページの前後2ページ + 先頭/最終ページを表示し、間は「…」で省略する
