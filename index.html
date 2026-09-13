@@ -23,11 +23,12 @@
   .field label{font-size:11px;color:var(--muted);}
   select{padding:7px 9px;border:1px solid var(--line);border-radius:8px;
     background:#fff;font-size:14px;min-width:130px;}
-  .tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;align-items:center;}
+  .toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;
+    gap:10px 16px;margin-bottom:12px;}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
   .tab{padding:7px 14px;border:1px solid var(--line);background:#fff;border-radius:999px;
     cursor:pointer;font-size:13px;color:var(--muted);}
   .tab.active{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;}
-  .tab-spacer{flex:1 1 auto;}
   .link-btn{padding:7px 12px;border:1px dashed var(--line);background:#fff;border-radius:999px;
     cursor:pointer;font-size:13px;color:var(--accent);}
   .link-btn:hover{background:var(--accent-weak);}
@@ -43,7 +44,7 @@
   .btn:hover{background:var(--accent-weak);}
   .pager{display:flex;align-items:center;justify-content:center;gap:10px;
     flex-wrap:wrap;}
-  #pagerTop{margin-bottom:12px;}
+  #pagerTop{margin:0;flex:1 1 auto;}
   #pagerBottom{margin-top:12px;}
   .page-nav{padding:7px 14px;border:1px solid var(--line);background:#fff;border-radius:8px;
     cursor:pointer;font-size:13px;color:var(--accent);}
@@ -102,14 +103,17 @@
     </div>
   </div>
 
-  <div class="tabs" id="kindTabs"></div>
-
-  <div id="rankingView">
+  <div class="toolbar" id="toolbar">
+    <div class="tabs" id="kindTabs"></div>
     <div class="pager hidden" id="pagerTop">
       <button class="page-nav" id="prevPageBtnTop">← 前へ</button>
       <div class="page-nums" id="pageNumsTop"></div>
       <button class="page-nav" id="nextPageBtnTop">次へ →</button>
     </div>
+    <div class="link-btn hidden" id="borderOpenBtn">📈 ボーダー推移</div>
+  </div>
+
+  <div id="rankingView">
     <div class="card">
       <table id="rankTable"><thead></thead><tbody></tbody></table>
     </div>
@@ -208,9 +212,12 @@ async function init(){
   $("prevPageBtnBottom").onclick = ()=>goToPage(state.page-1);
   $("nextPageBtnBottom").onclick = ()=>goToPage(state.page+1);
   $("trendBack").onclick = ()=>{ $("trendView").classList.add("hidden");
-                                 $("rankingView").classList.remove("hidden"); };
+                                 $("rankingView").classList.remove("hidden");
+                                 renderPager(); };
   $("borderBack").onclick = ()=>{ $("borderView").classList.add("hidden");
-                                  $("rankingView").classList.remove("hidden"); };
+                                  $("rankingView").classList.remove("hidden");
+                                  renderPager(); };
+  $("borderOpenBtn").onclick = openBorderView;
   $("addRankBtn").onclick = addCustomRank;
   $("customRankInput").addEventListener("keydown", e=>{ if(e.key==="Enter") addCustomRank(); });
   onCategoryChange();
@@ -245,6 +252,8 @@ function onContestChange(){
   state.contest = list[+$("contestSel").value] || list[0];
   if(!state.contest){
     $("kindTabs").innerHTML = "";
+    $("borderOpenBtn").classList.add("hidden");
+    $("pagerTop").classList.add("hidden");
     $("trendView").classList.add("hidden");
     $("borderView").classList.add("hidden");
     $("rankingView").classList.remove("hidden");
@@ -283,12 +292,11 @@ function onContestChange(){
 
 function renderKindTabs(isEvent){
   const kinds = KINDS_BY_TYPE[state.contest.ctype] || [];
-  const tabsHtml = kinds.map(k=>
+  $("kindTabs").innerHTML = kinds.map(k=>
     `<div class="tab ${k===state.kind?'active':''}" data-k="${k}">${KIND_LABEL[k]}</div>`
   ).join("");
   // ボーダー推移は複数日にわたるイベントのみ意味を持つ(大会は1日のみのため対象外)
-  const borderBtn = isEvent ? `<div class="link-btn" id="borderOpenBtn">📈 ボーダー推移</div>` : "";
-  $("kindTabs").innerHTML = tabsHtml + `<div class="tab-spacer"></div>` + borderBtn;
+  $("borderOpenBtn").classList.toggle("hidden", !isEvent);
 
   $("kindTabs").querySelectorAll(".tab").forEach(t=>{
     t.onclick = ()=>{
@@ -305,8 +313,6 @@ function renderKindTabs(isEvent){
       }
     };
   });
-  const openBtn = $("borderOpenBtn");
-  if(openBtn) openBtn.onclick = openBorderView;
 }
 
 function showRankMsg(m){ $("rankMsg").textContent=m; $("rankMsg").classList.remove("hidden"); }
@@ -424,6 +430,7 @@ function escapeHtml(s){ return String(s??"").replace(/[&<>"]/g,
 async function showTrend(entityId, name){
   $("rankingView").classList.add("hidden");
   $("borderView").classList.add("hidden");
+  $("pagerTop").classList.add("hidden");
   $("trendView").classList.remove("hidden");
   $("trendMsg").classList.add("hidden");
   $("trendTitle").textContent = `${KIND_LABEL[state.kind]}：${name} の推移`;
@@ -466,6 +473,7 @@ function renderChart(t){
 function openBorderView(){
   $("rankingView").classList.add("hidden");
   $("trendView").classList.add("hidden");
+  $("pagerTop").classList.add("hidden");
   $("borderView").classList.remove("hidden");
   $("borderTitle").textContent = `${KIND_LABEL[state.kind]}のボーダー推移`;
   resetBorderSelection();
