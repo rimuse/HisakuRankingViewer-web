@@ -270,9 +270,7 @@ function onContestChange(){
     const d0 = new Date(state.contest.start_date);
     const d1 = new Date(state.contest.end_date);
     const days = Math.round((d1-d0)/86400000) + 1;
-    const midDay = state.contest.mid_date
-      ? Math.round((new Date(state.contest.mid_date)-d0)/86400000) + 1
-      : null;
+    const midDay = getMidDay(state.contest);
     let opts = "";
     for(let i=1;i<=days;i++){
       const label = i===midDay ? `${i}日目（中間集計日）` : `${i}日目`;
@@ -313,6 +311,13 @@ function renderKindTabs(isEvent){
       }
     };
   });
+}
+
+// 開催開始日からの経過日数で中間集計日(mid_date)の「○日目」を求める(未設定ならnull)
+function getMidDay(contest){
+  if(!contest || !contest.mid_date) return null;
+  const d0 = new Date(contest.start_date);
+  return Math.round((new Date(contest.mid_date)-d0)/86400000) + 1;
 }
 
 function showRankMsg(m){ $("rankMsg").textContent=m; $("rankMsg").classList.remove("hidden"); }
@@ -576,6 +581,8 @@ function renderBorderChart(byRank, ranks){
   }
   $("borderMsg").classList.add("hidden");
 
+  const midDay = getMidDay(state.contest);
+
   const datasets = ranks.map((r, i)=>{
     const rows = byRank[r] || [];
     const byDay = {};
@@ -592,10 +599,14 @@ function renderBorderChart(byRank, ranks){
   if(state.borderChart) state.borderChart.destroy();
   state.borderChart = new Chart($("borderChart"), {
     type:"line",
-    data:{ labels: days.map(d=>d+"日目"), datasets },
+    data:{ labels: days.map(d=> d===midDay ? [d+"日目","(中間集計日)"] : d+"日目"), datasets },
     options:{
       responsive:true, interaction:{mode:"index",intersect:false},
       plugins:{ tooltip:{ callbacks:{
+        title: (items)=>{
+          const l = items[0]?.label;
+          return Array.isArray(l) ? l.join(" ") : l;
+        },
         afterLabel: (ctx)=>{
           const name = ctx.dataset._entityNames?.[ctx.dataIndex];
           return name ? `　${name}` : "";
