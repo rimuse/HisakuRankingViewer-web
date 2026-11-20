@@ -221,6 +221,7 @@ async function init(){
   $("addRankBtn").onclick = addCustomRank;
   $("customRankInput").addEventListener("keydown", e=>{ if(e.key==="Enter") addCustomRank(); });
   onCategoryChange();
+  loadHolidays();
 }
 
 function onCategoryChange(){
@@ -266,19 +267,8 @@ function onContestChange(){
   // 日セレクタ: イベントは開催日数ぶん、大会は1日のみ
   const isEvent = state.contest.ctype === "event";
   $("dayField").style.display = isEvent ? "" : "none";
-  if(isEvent){
-    const d0 = new Date(state.contest.start_date);
-    const d1 = new Date(state.contest.end_date);
-    const days = Math.round((d1-d0)/86400000) + 1;
-    const midDay = getMidDay(state.contest);
-    let opts = "";
-    for(let i=1;i<=days;i++){
-      const label = i===midDay ? `${i}日目（中間集計日）` : `${i}日目`;
-      opts += `<option value="${i}">${label}</option>`;
-    }
-    $("daySel").innerHTML = opts;
-  }
   state.day = 1;
+  if(isEvent) renderDayOptions();
 
   renderKindTabs(isEvent);
 
@@ -313,11 +303,51 @@ function renderKindTabs(isEvent){
   });
 }
 
+// ---- 日セレクタ(日付・曜日・祝日つき) ----
+const WEEKDAYS = ["日","月","火","水","木","金","土"];
+const HOLIDAY_API = "https://holidays-jp.github.io/api/v1/date.json";
+let holidays = {}; // "YYYY-MM-DD" -> 祝日名
+
+// "YYYY-MM-DD..." をタイムゾーンに依存しない UTC 0時の Date にする
+function parseYMD(s){
+  const [y,m,d] = String(s).slice(0,10).split("-").map(Number);
+  return new Date(Date.UTC(y, m-1, d));
+}
+
+// 「◯日目　11/11(月・祝)」形式のラベル
+function dayLabel(contest, i, midDay){
+  const dt = parseYMD(contest.start_date);
+  dt.setUTCDate(dt.getUTCDate() + i - 1);
+  const key = dt.toISOString().slice(0,10);
+  const wd = WEEKDAYS[dt.getUTCDay()] + (holidays[key] ? "・祝" : "");
+  let label = `${i}日目　${dt.getUTCMonth()+1}/${dt.getUTCDate()}(${wd})`;
+  if(i===midDay) label += "（中間集計日）";
+  return label;
+}
+
+function renderDayOptions(){
+  const c = state.contest;
+  if(!c || c.ctype !== "event") return;
+  const days = Math.round((parseYMD(c.end_date)-parseYMD(c.start_date))/86400000) + 1;
+  const midDay = getMidDay(c);
+  let opts = "";
+  for(let i=1;i<=days;i++) opts += `<option value="${i}">${dayLabel(c, i, midDay)}</option>`;
+  $("daySel").innerHTML = opts;
+  $("daySel").value = state.day;
+}
+
+// 祝日一覧を取得(失敗時は祝日表記なしで曜日のみ表示)
+async function loadHolidays(){
+  try {
+    holidays = await fetchJSON(HOLIDAY_API) || {};
+    renderDayOptions();
+  } catch(e){ console.warn("祝日の取得に失敗しました:", e); }
+}
+
 // 開催開始日からの経過日数で中間集計日(mid_date)の「○日目」を求める(未設定ならnull)
 function getMidDay(contest){
   if(!contest || !contest.mid_date) return null;
-  const d0 = new Date(contest.start_date);
-  return Math.round((new Date(contest.mid_date)-d0)/86400000) + 1;
+  return Math.round((parseYMD(contest.mid_date)-parseYMD(contest.start_date))/86400000) + 1;
 }
 
 function showRankMsg(m){ $("rankMsg").textContent=m; $("rankMsg").classList.remove("hidden"); }
